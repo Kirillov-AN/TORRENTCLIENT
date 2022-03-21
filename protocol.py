@@ -1,65 +1,103 @@
-import struct
-from concurrent.futures import CancelledError
-import asyncio
-from asyncio import Queue
+import struct  # Интерпретировать байты как упакованные двоичные данные
+from concurrent.futures import CancelledError #Это исключение можно перехватить для выполнения пользовательских операций при отмене асинхронных задач. Почти во всех ситуациях необходимо повторно вызвать исключение.
+import asyncio # это библиотека для написания параллельного кода с использованием синтаксиса async/await
+from asyncio import Queue # очереди asyncio спроектированы так, чтобы быть похожими на классы queueмодуля. Хотя асинхронные очереди не являются потокобезопасными, они предназначены специально для использования в асинхронном/ожидающем коде
 
-import bitstring
+import bitstring # это чистый модуль Python, разработанный, чтобы сделать создание и анализ двоичных данных максимально простым и естественным
 
-REQUEST_SIZE = 2**14
+REQUEST_SIZE = 2**14 # размер запроса
 
 
-class ProtocolBaseError(BaseException):
+class ProtocolBaseError(BaseException): # исключение при работе протокола
     pass
 
 
-class ConnectionToPeer:
+"""
+Одноранговое соединение, используемое для загрузки и выгрузки фрагментов.
+
+    Одноранговое соединение будет потреблять один доступный одноранговый узел из данной очереди.
+    На основе сведений об одноранговых узлах PeerConnection попытается открыть соединение.
+    и выполните рукопожатие BitTorrent.
+
+    После успешного рукопожатия PeerConnection будет в *задушенном* состоянии.
+    состояние, не разрешено запрашивать какие-либо данные от удаленного узла. После отправки
+    заинтересованное сообщение, которое PeerConnection будет ожидать, чтобы его *разблокировали*.
+
+    Как только удаленный пир освободит нас, мы можем начать запрашивать части.
+    PeerConnection будет продолжать запрашивать части до тех пор, пока есть
+    куски, оставшиеся для запроса, или до тех пор, пока удаленный узел не отключится.
+
+    Если соединение с удаленным узлом разрывается, PeerConnection потребляет
+    следующий доступный одноранговый узел из очереди и попытаться подключиться к нему
+    вместо.
+"""
+
+# Асинхронный HTTP
+
+class ConnectionToPeer: # подключение к пиру
     def __init__(self, torrent_queue, torrent_hash,
                  torrent_peer_id, torrent_piece_manager, torrent_on_block_cb=None):
-        self.my_state = []
-        self.peer_state = []
+        """
+        :param torrent_queue: асинхронная очередь, содержащая список доступных пиров
+        :param torrent_hash: Хэш SHA1 для информации метаданных
+        :param torrent_peer_id: Идентификатор нашего пира, используемый для идентификации нас
+        :param torrent_piece_manager: Менеджер, ответственный за определение того, какие части
+                              запросить
+        :param torrent_on_block_cb: Функция обратного вызова для вызова, когда блок
+                            получено от удаленного узла
+        """
+
+        """
+            Choked (заблокирован) — в этом состоянии пир не может запрашивать фрагменты у другого пира;
+            Unchoked (разблокирован) — в этом состоянии пир может запрашивать фрагменты у другого пира;
+            Interested (заинтересован) — это состояние говорит о том, что пир заинтересован в получении фрагментов;
+            Not interested (не заинтересован) — это состояние говорит о том, что пир не заинтересован в получении фрагментов.
+        """
+        self.my_state = [] # список наших состояний начинается с Choked или Not interested. Состояния меняются в результате ответа пиров
+        self.peer_state = []  # список состояний пиров начинается с Choked или Not interested. Состояния меняются в результате ответа пиров
         self.torrent_queue = torrent_queue
         self.torrent_hash = torrent_hash
         self.torrent_peer_id = torrent_peer_id
-        self.torrent_remote_id = None
-        self.torrent_writer = None
-        self.torrent_reader = None
+        self.torrent_remote_id = None # нигде не используется в коде
+        self.torrent_writer = None # нигде не используется в коде, но судя по всему нужен для записи данных
+        self.torrent_reader = None # нигде не используется в коде, но судя по всему нужен для чтения данных
         self.torrent_piece_manager = torrent_piece_manager
         self.torrent_on_block_cb = torrent_on_block_cb
-        self.torrent_future = asyncio.ensure_future(self.start())
+        self.torrent_future = asyncio.ensure_future(self.start()) # запускаем задачу из произвольного ожидаемого асинхронно
 
     async def start(self):
-        while 'stopped' not in self.my_state:
-            ip, port = await self.torrent_queue.get()
-            print('Got assigned peer with: {ip}'.format(ip=ip))
+        while 'stopped' not in self.my_state: # запускаем цикл пока не получим в список my_state состояние stopped
+            ip, port = await self.torrent_queue.get() # получаем кортеж из очереди торрента
+            print('Got assigned peer with: {ip}'.format(ip=ip)) # сообщение о том по какому ip назначен узел
 
-            try:
+            try: # пытаемся
                 self.reader, self.writer = await asyncio.open_connection(
-                    ip, port)
-                print('Connection open to peer: {ip}'.format(ip=ip))
+                    ip, port) # получить кортеж из открытого соединения
+                print('Connection open to peer: {ip}'.format(ip=ip)) # если все хорошо пишем, что соединение открыто
 
-                buffer = await self.handshake()
+                buffer = await self.handshake() # ждем хэндшейк
 
-                self.my_state.append('choked')
+                self.my_state.append('choked') # добавляем в список наших состояниц choked
 
-                await self.send_interested()
-                self.my_state.append('interested')
+                await self.send_interested() # посылаем заинтересованное состояние
+                self.my_state.append('interested') # добавляем заинтересованное состояние к себе
 
-                async for message in StreamOfPeerIteratoration(self.reader, buffer):
-                    if 'stopped' in self.my_state:
+                async for message in StreamOfPeerIteratoration(self.reader, buffer): # итерируемся по итераторам Пира ка по range
+                    if 'stopped' in self.my_state: # если наше состояние stopped, то break
                         break
-                    if type(message) is BitField:
+                    if type(message) is BitField: # проверка типа на BitField
                         self.torrent_piece_manager.add_peer(self.remote_id,
-                                                    message.bitfield)
-                    elif type(message) is Interested:
-                        self.peer_state.append('interested')
-                    elif type(message) is NotInterested:
-                        if 'interested' in self.peer_state:
-                            self.peer_state.remove('interested')
-                    elif type(message) is Choke:
-                        self.my_state.append('choked')
-                    elif type(message) is Unchoke:
-                        if 'choked' in self.my_state:
-                            self.my_state.remove('choked')
+                                                    message.bitfield) # добавляем через add_peer id и bitfield MAGIC!
+                    elif type(message) is Interested: # проверка типа на Interested
+                        self.peer_state.append('interested') # добавление в список пира состояния Interested
+                    elif type(message) is NotInterested: # проверка типа на NotInterested
+                        if 'interested' in self.peer_state: # если в списке пира есть interested
+                            self.peer_state.remove('interested') # удаляем из списка пира interested
+                    elif type(message) is Choke: # проверка типа на Choke
+                        self.my_state.append('choked') # добавление в наш список состояния Choke
+                    elif type(message) is Unchoke: # проверка типа на Unchoke
+                        if 'choked' in self.my_state: # если в нашем списке есть chocked
+                            self.my_state.remove('choked') # удалить из нашего списка состояний
                     elif type(message) is Have:
                         self.torrent_piece_manager.update_peer(self.remote_id,
                                                        message.index)
@@ -83,17 +121,17 @@ class ConnectionToPeer:
                                 self.my_state.append('pending_request')
                                 await self.request_chunk()
 
-            except ProtocolBaseError as e:
+            except ProtocolBaseError as e: # обработка исключения протокола
                 print('Protocol error')
-            except (ConnectionRefusedError, TimeoutError):
+            except (ConnectionRefusedError, TimeoutError): # Исключение, возникающее в случае отказа узла в попытке соединения или превышено время ожидания
                 print('Unable to connect to peer')
-            except (ConnectionResetError, CancelledError):
+            except (ConnectionResetError, CancelledError): # когда соединение сбрасывается узлом.
                 print('Connection closed')
-            except Exception as e:
+            except Exception as e: # для обработки прочих ошибок
                 print('An error occurred')
-                self.cancel()
-                raise e
-            self.cancel()
+                self.cancel() # прерываем процесс
+                raise e # вызываем исключение e
+            self.cancel() # для закрытия пира
 
     def cancel(self):
         print('Closing peer {id}'.format(id=self.remote_id))
@@ -123,129 +161,129 @@ class ConnectionToPeer:
             self.writer.write(message)
             await self.writer.drain()
 
-    async def handshake(self):
-        self.writer.write(ClientHandshake(self.torrent_hash, self.torrent_peer_id).encode())
-        await self.writer.drain()
+    async def handshake(self): # получение handshake. Обмен рукопожатиями инициирует подключающийся клиент.
+        self.writer.write(ClientHandshake(self.torrent_hash, self.torrent_peer_id).encode()) # Он позволяет записывать любую строку в открытый файл по полю writer
+        await self.writer.drain() # Подождите, пока не будет уместно возобновить запись в поток.
 
-        buf = b''
-        tries = 1
-        while len(buf) < ClientHandshake.length and tries < 10:
+        buf = b'' # инициализация бинарной строкой
+        tries = 1 # счетчик попыток
+        while len(buf) < ClientHandshake.length and tries < 10: # если попыток меньше 10 и длина буфера меньше фиксированной длины handshake
             tries += 1
-            buf = await self.reader.read(StreamOfPeerIteratoration.CHUNK_SIZE)
+            buf = await self.reader.read(StreamOfPeerIteratoration.CHUNK_SIZE) # пытаемся поймать handshake
 
-        response = ClientHandshake.decode(buf[:ClientHandshake.length])
-        if not response:
-            raise ProtocolBaseError('Unable receive and parse a handshake')
-        if not response.info_hash == self.torrent_hash:
-            raise ProtocolBaseError('Handshake with invalid info_hash')
+        response = ClientHandshake.decode(buf[:ClientHandshake.length]) # ответ на рукопожатие
+        if not response: # если ошибка
+            raise ProtocolBaseError('Unable receive and parse a handshake') # Невозможно получить и проанализировать рукопожатие
+        if not response.info_hash == self.torrent_hash: # если неверный hash
+            raise ProtocolBaseError('Handshake with invalid info_hash') # то пишем, что пакет был поврежден
 
-        self.remote_id = response.peer_id
+        self.remote_id = response.peer_id # инициализация удаленного id
         print('Handshake with peer was successful')
 
-        return buf[ClientHandshake.length:]
+        return buf[ClientHandshake.length:] # возварт handshake
 
     async def send_interested(self):
-        message = Interested()
+        message = Interested() # инициализация message
         print('Sending message: {type}'.format(type=message))
-        self.writer.write(message.encode())
-        await self.writer.drain()
+        self.writer.write(message.encode()) # записываем message encode в файл
+        await self.writer.drain() # Подождите, пока не будет уместно возобновить запись в поток.
 
 
-class StreamOfPeerIteratoration:
-    CHUNK_SIZE = 10*1024
+class StreamOfPeerIteratoration: # итератор потока Пира
+    CHUNK_SIZE = 10*1024 # размер куска
 
     def __init__(self, reader, initial: bytes=None):
-        self.reader = reader
-        self.buffer = initial if initial else b''
+        self.reader = reader # инициализация потока чтения
+        self.buffer = initial if initial else b'' #инициализация буффера
 
-    async def __aiter__(self):
+    async def __aiter__(self): # для возврата асинхронного оператора
         return self
 
-    async def __anext__(self):
-        while True:
+    async def __anext__(self): # для возврата следующего асинхронного оператора
+        while True: # бесконечный цикл
             try:
-                data = await self.reader.read(StreamOfPeerIteratoration.CHUNK_SIZE)
-                if data:
-                    self.buffer += data
-                    message = self.parse()
-                    if message:
+                data = await self.reader.read(StreamOfPeerIteratoration.CHUNK_SIZE) # читаем 1 chunk
+                if data: # если все хорошо
+                    self.buffer += data # записываем chunk в buffer
+                    message = self.parse() # парсим итератор
+                    if message: # если успех вернуть message
                         return message
-                else:
+                else: # если ошибка вернуть,что не удалось прочитать chunk
                     print('No data read from stream')
-                    if self.buffer:
+                    if self.buffer: # парсим итератор
                         message = self.parse()
-                        if message:
+                        if message: # если успех вернуть message
                             return message
-                    raise StopAsyncIteration()
-            except ConnectionResetError:
+                    raise StopAsyncIteration() # вызов исключения асинхронного итератора
+            except ConnectionResetError: # исключение закрытие пира
                 print('Connection closed by peer')
                 raise StopAsyncIteration()
-            except CancelledError:
+            except CancelledError: # исключение закрытие пира
                 raise StopAsyncIteration()
             except StopAsyncIteration as e:
                 raise e
-            except Exception:
+            except Exception: # исключение ошибки итерации
                 print('Error when iterating over stream!')
                 raise StopAsyncIteration()
 
-    def parse(self):
-        header_length = 4
+    def parse(self): # парсер объекта
+        header_length = 4 # длина заголовка
 
-        if len(self.buffer) > 4:  # 4 bytes is needed to identify the message
-            message_length = struct.unpack('>I', self.buffer[0:4])[0]
+        if len(self.buffer) > 4:  # нужно для идентификации message
+            message_length = struct.unpack('>I', self.buffer[0:4])[0] # получаем длинну сообщения
 
-            if message_length == 0:
+            if message_length == 0: # если длина равна нулю, то KeepAlive()
                 return KeepAlive()
 
-            if len(self.buffer) >= message_length:
-                message_id = struct.unpack('>b', self.buffer[4:5])[0]
+            if len(self.buffer) >= message_length: # если длинна буффера больше длины сообщения
+                message_id = struct.unpack('>b', self.buffer[4:5])[0] # полукчаем message_id
 
-                def _consume():
-                    self.buffer = self.buffer[header_length + message_length:]
+                def _consume(): # функция потребитель
+                    self.buffer = self.buffer[header_length + message_length:] # возврат обрезанного buffer
 
-                def _data():
-                    return self.buffer[:header_length + message_length]
+                def _data():  # функция данные
+                    return self.buffer[:header_length + message_length]  # возврат обрезанного buffer
 
-                if message_id is PeerResponse.BitField:
-                    data = _data()
-                    _consume()
-                    return BitField.decode(data)
-                elif message_id is PeerResponse.Interested:
-                    _consume()
-                    return Interested()
-                elif message_id is PeerResponse.NotInterested:
-                    _consume()
-                    return NotInterested()
-                elif message_id is PeerResponse.Choke:
-                    _consume()
-                    return Choke()
-                elif message_id is PeerResponse.Unchoke:
-                    _consume()
-                    return Unchoke()
-                elif message_id is PeerResponse.Have:
-                    data = _data()
-                    _consume()
-                    return Have.decode(data)
-                elif message_id is PeerResponse.Piece:
-                    data = _data()
-                    _consume()
-                    return Piece.decode(data)
-                elif message_id is PeerResponse.Request:
-                    data = _data()
-                    _consume()
-                    return Request.decode(data)
-                elif message_id is PeerResponse.Cancel:
-                    data = _data()
-                    _consume()
-                    return Cancel.decode(data)
+                if message_id is PeerResponse.BitField: # проверка на равенство message_id и BitField
+                    data = _data() # запись данных
+                    _consume() # потребить буффер
+                    return BitField.decode(data) # возврат декодированных данных
+                elif message_id is PeerResponse.Interested: # проверка на состояние Interested
+                    _consume() # потребить буффер
+                    return Interested() # вернуть заинтересованность
+                elif message_id is PeerResponse.NotInterested: # проверка на состояние not Interested
+                    _consume() # потребить буффер
+                    return NotInterested() # вернуть незаинтересованность
+                elif message_id is PeerResponse.Choke: # проверка на состояние Choke
+                    _consume() # потребить буффер
+                    return Choke() # вернуть закрытое состояние, но не Stopped!!!
+                elif message_id is PeerResponse.Unchoke: # проверка на состояние Unchoke
+                    _consume() # потребить буффер
+                    return Unchoke() # вернуть открыть
+                elif message_id is PeerResponse.Have: # проверка на Have. Have — сообщение, которое в любой момент может отправить нам удалённый пир
+                    data = _data() # получение данных
+                    _consume() # потребить буффер
+                    return Have.decode(data) # вернуть декодированные данные
+                elif message_id is PeerResponse.Piece: # проверка message_id на равенство Piece
+                    data = _data() # получение данных
+                    _consume() # потребить буффер
+                    return Piece.decode(data) # вернуть декодированные данные
+                elif message_id is PeerResponse.Request: # проверка message_id на соответсвие запросу
+                    data = _data() # получение данных
+                    _consume() # потребить буффер
+                    return Request.decode(data) # вернуть декодированные данные
+                elif message_id is PeerResponse.Cancel:  # проверка message_id на состояние отмены
+                    data = _data() # получение данных
+                    _consume() # потребить буффер
+                    return Cancel.decode(data) # вернуть декодированные данные
                 else:
-                    print('Unsupported message!')
+                    print('Unsupported message!') # иначе сказать, что пакет не поддреживается
             else:
-                print('Not enough in buffer in order to parse')
+                print('Not enough in buffer in order to parse') # иначе недостаточно данных из буффера
         return None
 
 
-class PeerResponse:
+class PeerResponse: # Ответы Пира
     Choke = 0
     Unchoke = 1
     Interested = 2
@@ -300,7 +338,7 @@ class ClientHandshake(PeerResponse):
         return 'Handshake'
 
 
-class KeepAlive(PeerResponse):
+class KeepAlive(PeerResponse): # наследник класса состояния пиров
     def __str__(self):
         return 'KeepAlive'
 
@@ -333,7 +371,7 @@ class Interested(PeerResponse):
     def encode(self) -> bytes:
         return struct.pack('>Ib',
                            1,  # Message length
-                           PeerResponse.Interested)
+                           PeerResponse.Interested) # упаковка состояния в байты
 
     def __str__(self):
         return 'Interested'
