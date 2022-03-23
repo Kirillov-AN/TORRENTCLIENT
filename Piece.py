@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 import math
@@ -8,8 +7,8 @@ from asyncio import Queue
 from collections import namedtuple, defaultdict
 from hashlib import sha1
 
-from pieces.protocol import PeerConnection, REQUEST_SIZE
-from pieces.tracker import Tracker
+from protocol import ConnectionToPeer, REQUEST_SIZE
+from tracker import Tracker
 
 MAX_PEER_CONNECTIONS = 40
 
@@ -172,7 +171,9 @@ class PieceManager:
             del self.peers[peer_id]
 
     def next_request(self, peer_id) -> Block:
-
+#видимо ищет следующий блок в пире, сначала проверяется является ли блок недостающим
+#из-за того что он не был  закачан за отведенное время, если нет, то проверяет запрашивается ли блок сейчас
+# дальше смотри - явлется ли блок редким - то есть его сложно достать у других пиров
 
         if peer_id not in self.peers:
             return None
@@ -196,14 +197,14 @@ class PieceManager:
                request.block.offset == block_offset:
                 del self.pending_blocks[index]
                 break
-
+      #тут проверяется закачан ли кусок и скидывается на диск по итогам
         pieces = [p for p in self.ongoing_pieces if p.index == piece_index]
         piece = pieces[0] if pieces else None
         if piece:
             piece.block_received(block_offset, data)
             if piece.is_complete_retrieved():
                 if piece.is_hash_matching():
-                    self._write(piece)
+                    self._write(piece) #запись на диск данных куска
                     self.ongoing_pieces.remove(piece)
                     self.have_pieces.append(piece)
                     complete = (self.total_pieces -
@@ -222,16 +223,15 @@ class PieceManager:
             logging.warning('Trying to update piece that is not ongoing!')
 
     def _expired_requests(self, peer_id) -> Block:
-
+#провал закачки блока
         current = int(round(time.time() * 1000))
         for request in self.pending_blocks:
             if self.peers[peer_id][request.block.piece]:
-                if request.added + self.max_pending_time < current:
+                if request.added + self.max_pending_time < current: #закончилось время
                     logging.info('Re-requesting block {block} for '
                                  'piece {piece}'.format(
                                     block=request.block.offset,
                                     piece=request.block.piece))
-                    # Reset expiration timer
                     request.added = current
                     return request.block
         return None
@@ -240,7 +240,6 @@ class PieceManager:
 
         for piece in self.ongoing_pieces:
             if self.peers[peer_id][piece.index]:
-                # Is there any blocks left to request in this piece?
                 block = piece.next_request()
                 if block:
                     self.pending_blocks.append(
@@ -267,11 +266,10 @@ class PieceManager:
 
         for index, piece in enumerate(self.missing_pieces):
             if self.peers[peer_id][piece.index]:
-                # Move this piece from missing to ongoing
+                # Помещает блок в списокн недостающих
                 piece = self.missing_pieces.pop(index)
                 self.ongoing_pieces.append(piece)
-                # The missing pieces does not have any previously requested
-                # blocks (then it is ongoing).
+
                 return piece.next_request_block()
         return None
 

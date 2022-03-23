@@ -98,28 +98,28 @@ class ConnectionToPeer: # подключение к пиру
                     elif type(message) is Unchoke: # проверка типа на Unchoke
                         if 'choked' in self.my_state: # если в нашем списке есть chocked
                             self.my_state.remove('choked') # удалить из нашего списка состояний
-                    elif type(message) is Have:
+                    elif type(message) is Have: # проверка типа на Have
                         self.torrent_piece_manager.update_peer(self.remote_id,
-                                                       message.index)
-                    elif type(message) is KeepAlive:
-                        pass
-                    elif type(message) is Piece:
-                        self.my_state.remove('pending_request')
+                                                       message.index) # сколько кусков имеет другой пир. Реализация в Piece.py
+                    elif type(message) is KeepAlive: # проверка типа на KeepAlive
+                        pass # заглушка либо ничего не надо делать
+                    elif type(message) is Piece: # проверка типа на Piece
+                        self.my_state.remove('pending_request') # удалить из наших состояний ожидающий запрос
                         self.torrent_on_block_cb(
                             peer_id=self.remote_id,
                             piece_index=message.index,
                             block_offset=message.begin,
-                            data=message.block)
-                    elif type(message) is Request:
+                            data=message.block) # Вызов функции обратного вызова для вызова, когда блок получено от удаленного узла
+                    elif type(message) is Request: # проверка типа на Request
                         print('Ignoring the received Request message.')
-                    elif type(message) is Cancel:
+                    elif type(message) is Cancel: # проверка типа на Cancel
                         print('Ignoring the received Cancel message.')
 
-                    if 'choked' not in self.my_state:
-                        if 'interested' in self.my_state:
-                            if 'pending_request' not in self.my_state:
-                                self.my_state.append('pending_request')
-                                await self.request_chunk()
+                    if 'choked' not in self.my_state: # если choked нету в списке наших состояний
+                        if 'interested' in self.my_state: # и если interested нету в списке наших состояний
+                            if 'pending_request' not in self.my_state: # и если pending_request нету в списке наших состояний
+                                self.my_state.append('pending_request') # добавить в список наших состояний ожидающий запрос
+                                await self.request_chunk() # вызвать асинхронную функцию
 
             except ProtocolBaseError as e: # обработка исключения протокола
                 print('Protocol error')
@@ -134,23 +134,23 @@ class ConnectionToPeer: # подключение к пиру
             self.cancel() # для закрытия пира
 
     def cancel(self):
-        print('Closing peer {id}'.format(id=self.remote_id))
-        if not self.torrent_future.done():
-            self.torrent_future.cancel()
-        if self.writer:
-            self.writer.close()
+        print('Closing peer {id}'.format(id=self.remote_id)) # закрываем пир
+        if not self.torrent_future.done(): # если не выполненно закрытие
+            self.torrent_future.cancel() # то отменяем через torrent_future.cancel(). Есть прототип если перейти
+        if self.writer: # если запись в файл открыта
+            self.writer.close() # закрыть файл
 
-        self.torrent_queue.task_done()
+        self.torrent_queue.task_done() # задание выполнено
 
     def stop(self):
-        self.my_state.append('stopped')
-        if not self.torrent_future.done():
-            self.torrent_future.cancel()
+        self.my_state.append('stopped') # добавляем состояние stopped. Значит закачка законченна
+        if not self.torrent_future.done(): # если не выполненно закрытие
+            self.torrent_future.cancel()  # то отменяем через torrent_future.cancel(). Есть прототип если перейти
 
     async def request_chunk(self):
-        block = self.torrent_piece_manager.next_request(self.remote_id)
-        if block:
-            message = Request(block.piece, block.offset, block.length).encode()
+        block = self.torrent_piece_manager.next_request(self.remote_id) # получаем bool ответ от next_request. Реализация в Piece.py
+        if block: # если правда
+            message = Request(block.piece, block.offset, block.length).encode() # получаем message через Request.encode()
             print('Requesting block {block} for piece {piece} '
                           'of {length} bytes from peer {peer}'.format(
                             piece=block.piece,
@@ -158,8 +158,8 @@ class ConnectionToPeer: # подключение к пиру
                             length=block.length,
                             peer=self.remote_id))
 
-            self.writer.write(message)
-            await self.writer.drain()
+            self.writer.write(message) # запись message через поток writer в файл
+            await self.writer.drain() # делаем запись асинхронно
 
     async def handshake(self): # получение handshake. Обмен рукопожатиями инициирует подключающийся клиент.
         self.writer.write(ClientHandshake(self.torrent_hash, self.torrent_peer_id).encode()) # Он позволяет записывать любую строку в открытый файл по полю writer
@@ -297,26 +297,26 @@ class PeerResponse: # Ответы Пира
     Handshake = None
     KeepAlive = None
 
-    def encode(self) -> bytes:
+    def encode(self) -> bytes: # видимо заглушка
         pass
 
     @classmethod
-    def decode(cls, data: bytes):
+    def decode(cls, data: bytes): # видимо заглушка
         pass
 
 
-class ClientHandshake(PeerResponse):
-    length = 49 + 19
+class ClientHandshake(PeerResponse): # Хэндшейк клиента
+    length = 49 + 19 # размер хэндшейка
 
     def __init__(self, info_hash: bytes, peer_id: bytes):
-        if isinstance(info_hash, str):
-            info_hash = info_hash.encode('utf-8')
-        if isinstance(peer_id, str):
-            peer_id = peer_id.encode('utf-8')
+        if isinstance(info_hash, str): # проверка соответсвия хэша на строку
+            info_hash = info_hash.encode('utf-8') # превращаем хэш в байты
+        if isinstance(peer_id, str): # проверка соответсвия peer_id на строку
+            peer_id = peer_id.encode('utf-8')  # превращаем peer_id в байты
         self.info_hash = info_hash
         self.peer_id = peer_id
 
-    def encode(self) -> bytes:
+    def encode(self) -> bytes: # упаковываем хэш, пир id и другое в байты через структуру
         return struct.pack(
             '>B19s8x20s20s',
             19,                         # Single byte (B)
@@ -329,10 +329,10 @@ class ClientHandshake(PeerResponse):
     def decode(cls, data: bytes):
         print('Decoding Handshake of length: {length}'.format(
             length=len(data)))
-        if len(data) < (49 + 19):
+        if len(data) < (49 + 19): # проверка на целостность данных и на размер handshake
             return None
-        parts = struct.unpack('>B19s8x20s20s', data)
-        return cls(info_hash=parts[2], peer_id=parts[3])
+        parts = struct.unpack('>B19s8x20s20s', data) # распаковываем структуру
+        return cls(info_hash=parts[2], peer_id=parts[3]) # это стандартное имя первого аргумента методов класса
 
     def __str__(self):
         return 'Handshake'
@@ -345,23 +345,23 @@ class KeepAlive(PeerResponse): # наследник класса состоян�
 
 class BitField(PeerResponse):
     def __init__(self, data):
-        self.bitfield = bitstring.BitArray(bytes=data)
+        self.bitfield = bitstring.BitArray(bytes=data) # превращаем в bitstring байты data
 
     def encode(self) -> bytes:
-        bits_length = len(self.bitfield)
+        bits_length = len(self.bitfield) # получаем длинну битовой строки
         return struct.pack('>Ib' + str(bits_length) + 's',
                            1 + bits_length,
                            PeerResponse.BitField,
-                           self.bitfield)
+                           self.bitfield) # упаковываем длину строки, ответ от пира в структуру
 
     @classmethod
     def decode(cls, data: bytes):
         message_length = struct.unpack('>I', data[:4])[0]
         print('Decoding BitField of length: {length}'.format(
-            length=message_length))
+            length=message_length)) # распаковываем структуру битовой строки в message
 
         parts = struct.unpack('>Ib' + str(message_length - 1) + 's', data)
-        return cls(parts[2])
+        return cls(parts[2]) # распаковываем структуру битовой строки в message
 
     def __str__(self):
         return 'BitField'
@@ -394,30 +394,30 @@ class Unchoke(PeerResponse):
 
 class Have(PeerResponse):
     def __init__(self, index: int):
-        self.index = index
+        self.index = index # получения индекса не нашел где вызывается конструктор
 
     def encode(self):
         return struct.pack('>IbI',
                            5,  # Message length
                            PeerResponse.Have,
-                           self.index)
+                           self.index) # упаковка в структуру ответ пира и идекса
 
     @classmethod
     def decode(cls, data: bytes):
         print('Decoding Have of length: {length}'.format(
             length=len(data)))
-        index = struct.unpack('>IbI', data)[2]
+        index = struct.unpack('>IbI', data)[2] # получения индекса и з распакованной структуры
         return cls(index)
 
     def __str__(self):
         return 'Have'
 
 
-class Request(PeerResponse):
+class Request(PeerResponse): # класс запрос
     def __init__(self, index: int, begin: int, length: int = REQUEST_SIZE):
-        self.index = index
-        self.begin = begin
-        self.length = length
+        self.index = index # индекс
+        self.begin = begin # откуда начинаем
+        self.length = length # длина сообщения
 
     def encode(self):
         return struct.pack('>IbIII',
@@ -425,13 +425,13 @@ class Request(PeerResponse):
                            PeerResponse.Request,
                            self.index,
                            self.begin,
-                           self.length)
+                           self.length) # упаковываем ответ пира, индекс, откуда начинаем и длину в строку
 
     @classmethod
     def decode(cls, data: bytes):
         print('Decoding Request of length: {length}'.format(
             length=len(data)))
-        # Tuple with (message length, id, index, begin, length)
+        # получаем кортеж (message length, id, index, begin, length)
         parts = struct.unpack('>IbIII', data)
         return cls(parts[2], parts[3], parts[4])
 
@@ -439,14 +439,13 @@ class Request(PeerResponse):
         return 'Request'
 
 
-class Piece(PeerResponse):
-    # The Piece message length without the block data
-    length = 9
+class Piece(PeerResponse): # класс Piece но это не ток класс как в Piece.py
+    length = 9 # длина пакета
 
     def __init__(self, index: int, begin: int, block: bytes):
-        self.index = index
-        self.begin = begin
-        self.block = block
+        self.index = index # индекс куска в потоке
+        self.begin = begin # с какого момента начинаем запись
+        self.block = block # блок данных
 
     def encode(self):
         message_length = Piece.length + len(self.block)
@@ -455,26 +454,26 @@ class Piece(PeerResponse):
                            PeerResponse.Piece,
                            self.index,
                            self.begin,
-                           self.block)
+                           self.block) # упаковка в структуру ответа пира, индекса куска в потоке, с какого момента начинаем запись, блока данных
 
     @classmethod
     def decode(cls, data: bytes):
         print('Decoding Piece of length: {length}'.format(
             length=len(data)))
-        length = struct.unpack('>I', data[:4])[0]
+        length = struct.unpack('>I', data[:4])[0] # распоковка длинны куска из структуры
         parts = struct.unpack('>IbII' + str(length - Piece.length) + 's',
-                              data[:length+4])
-        return cls(parts[2], parts[3], parts[4])
+                              data[:length+4]) # получение кортежа частей из структуры
+        return cls(parts[2], parts[3], parts[4]) # возврат частей
 
     def __str__(self):
         return 'Piece'
 
 
-class Cancel(PeerResponse):
+class Cancel(PeerResponse): # класс отмены
     def __init__(self, index, begin, length: int = REQUEST_SIZE):
-        self.index = index
-        self.begin = begin
-        self.length = length
+        self.index = index  # индекс
+        self.begin = begin  # откуда начинаем
+        self.length = length  # длина сообщения
 
     def encode(self):
         return struct.pack('>IbIII',
@@ -482,14 +481,17 @@ class Cancel(PeerResponse):
                            PeerResponse.Cancel,
                            self.index,
                            self.begin,
-                           self.length)
+                           self.length) # упаковка в структуру ответа пира, индекса куска в потоке, с какого момента начинаем запись, блока данных
 
     @classmethod
     def decode(cls, data: bytes):
         print('Decoding Cancel of length: {length}'.format(
             length=len(data)))
-        parts = struct.unpack('>IbIII', data)
-        return cls(parts[2], parts[3], parts[4])
+        parts = struct.unpack('>IbIII', data) # получение кортежа частей из структуры
+        return cls(parts[2], parts[3], parts[4]) # возврат частей
 
     def __str__(self):
         return 'Cancel'
+
+
+# последние 4 класса друг с другом очень похожи. Have, Request, Piece, Cancel имеют почти одинаковую структуру и отличаются лишь ответами
