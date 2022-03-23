@@ -1,0 +1,20 @@
+Пример успешного теста
+
+Decoding Handshake of length: 68
+Decoding Have of length: 9
+Decoding Request of length: 17
+Decoding Piece of length: 15
+Decoding Cancel of length: 17
+
+Пример теста с умышленной ошибкой
+
+Traceback (most recent call last):
+  File "C:\Users\ivan-\PycharmProjects\TorrentClientSSH\test_protocol.py", line 111, in <module>
+    Tester.test_can_encode()
+  File "C:\Users\ivan-\PycharmProjects\TorrentClientSSH\test_protocol.py", line 108, in test_can_encode
+    self.assertEqual(raw, b'\x00\x00\x00\x01\x01') # при замене на self.assertEqual(raw, b'\x00\x00\x00\x01\x01') тест выдаст ошибку
+  File "C:\Users\ivan-\AppData\Local\Programs\Python\Python39\lib\unittest\case.py", line 831, in assertEqual
+    assertion_func(first, second, msg=msg)
+  File "C:\Users\ivan-\AppData\Local\Programs\Python\Python39\lib\unittest\case.py", line 824, in _baseAssertEqual
+    raise self.failureException(msg)
+AssertionError: b'\x00\x00\x00\x01\x02' != b'\x00\x00\x00\x01\x01'
