@@ -14,7 +14,6 @@ from pieces.tracker import Tracker
 MAX_PEER_CONNECTIONS = 40
 
 
-
 class Block:
 
     Missing = 0
