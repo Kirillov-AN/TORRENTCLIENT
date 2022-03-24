@@ -1,8 +1,6 @@
 from hashlib import sha1
 from collections import namedtuple
-
-from decoder import *
-
+from decoder import Decoder, Encoder
 TorrentFile = namedtuple('TorrentFile', ['name', 'length'])
 
 
@@ -17,8 +15,8 @@ class Torrent:
 
         with open(self.filename, 'rb') as f:
             meta_info = f.read()
-            self.meta_info = decoder.Decoder(meta_info).decode()
-            info = decoder.Encoder(self.meta_info[b'info']).encode()
+            self.meta_info = Decoder(meta_info).decode()
+            info = Encoder(self.meta_info[b'info']).encode()
             self.info_hash = sha1(info).digest()
             self._identify_files()
 

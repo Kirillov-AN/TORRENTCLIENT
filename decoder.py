@@ -13,8 +13,16 @@ class Encoder:
 
     def __init__(self,data):
         self.data = data
+    def encode(self) -> bytes:
+        """
+        Encode a python object to a bencoded binary string
 
-    def  encode(self,data):
+        :return The bencoded binary data
+        """
+        return self.encode_next(self.data)
+
+    def  encode_next(self,data):
+
         if type (data) == str:
             return self.encodestr(data)
         elif type(data) == int:
@@ -25,6 +33,7 @@ class Encoder:
             return self.encodedict(data)
         elif type(data) == bytes:
             return self.encodebyte(data)
+
 
 
 
