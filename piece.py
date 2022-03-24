@@ -1,3 +1,4 @@
+
 import asyncio
 import logging
 import math
@@ -60,7 +61,7 @@ class Piece:
 
     def is_complete_retrieved(self): #не осталось блоков со статусом не готов
         blocks = [b for b in self.blocks if b.status is not Block.Retrieved]
-        return len(blocks) is 0
+        return len(blocks) == 0
 
     def is_hash_matching(self):
 

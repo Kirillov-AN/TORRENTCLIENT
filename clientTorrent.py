@@ -6,7 +6,7 @@ import time
 from asyncio import Queue
 from collections import namedtuple, defaultdict
 from hashlib import sha1
-from Piece import *
+from piece import *
 
 from protocol import ConnectionToPeer, REQUEST_SIZE
 from tracker import Tracker

@@ -1,7 +1,7 @@
 from hashlib import sha1
 from collections import namedtuple
 
-from . import decoder
+from decoder import *
 
 TorrentFile = namedtuple('TorrentFile', ['name', 'length'])
 
