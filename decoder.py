@@ -11,55 +11,48 @@ TOKEN_SEPARATE=b':'
 
 class Encoder:
 
-    def __init__(self,data):
-        self.data = data
+    def __init__(self, data):
+        self._data = data
+
     def encode(self) -> bytes:
-        """
-        Encode a python object to a bencoded binary string
 
-        :return The bencoded binary data
-        """
-        return self.encode_next(self.data)
+        return self.encode_next(self._data)
 
-    def  encode_next(self,data):
-
-        if type (data) == str:
-            return self.encodestr(data)
+    def encode_next(self, data):
+        if type(data) == str:
+            return self._encode_string(data)
         elif type(data) == int:
-            return self.encodeint(data)
+            return self._encode_int(data)
         elif type(data) == list:
-            return self.encodelist(data)
-        elif type(data) == dict:
-            return self.encodedict(data)
+            return self._encode_list(data)
+        elif type(data) == dict or type(data) == OrderedDict:
+            return self._encode_dict(data)
         elif type(data) == bytes:
-            return self.encodebyte(data)
+            return self._encode_bytes(data)
+        else:
+            return None
 
-
-
-
-
-    def encodeint(self, value):
+    def _encode_int(self, value):
         return str.encode('i' + str(value) + 'e')
 
-    def encodestr(self, value):
+    def _encode_string(self, value: str):
         res = str(len(value)) + ':' + value
         return str.encode(res)
 
-    def encodebyte(self, value):
+    def _encode_bytes(self, value: str):
         result = bytearray()
         result += str.encode(str(len(value)))
         result += b':'
         result += value
         return result
 
-    def encodelist(self, data):
+    def _encode_list(self, data):
         result = bytearray('l', 'utf-8')
         result += b''.join([self.encode_next(item) for item in data])
         result += b'e'
         return result
 
-
-    def encodedict(self, data):
+    def _encode_dict(self, data: dict) -> bytes:
         result = bytearray('d', 'utf-8')
         for k, v in data.items():
             key = self.encode_next(k)
@@ -71,13 +64,6 @@ class Encoder:
                 raise RuntimeError('Bad dict')
         result += b'e'
         return result
-
-
-
-class LOL:
-        def next(self):
-            print(lol) # Ты вызываешь функцию lol из класса Decoder? Тогда тебе надо было его определить выше
-
 
 class Decoder:
     def __init__(self,data):
@@ -163,3 +149,10 @@ class Decoder:
         bytes_to_read = int(self.read_until(TOKEN_SEPARATE))
         data = self.read(bytes_to_read)
         return data
+
+
+
+with open("RimWorld.torrent", 'rb') as f:
+            meta_info = f.read()
+            meta_info = Decoder(meta_info).decode()
+            info = Encoder(meta_info[b'info']).encode()
